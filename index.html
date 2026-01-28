@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="StyleSync" />
+  <meta name="theme-color" content="#020617" />
+  <meta name="description" content="AI-powered wardrobe assistant for your daily outfits" />
+  
+  <!-- iOS Icons -->
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  
+  <title>StyleSync</title>
+  
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json" />
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <style>
+    * {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    
+    input, textarea {
+      -webkit-user-select: text;
+      user-select: text;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #020617;
+      color: #f1f5f9;
+      -webkit-tap-highlight-color: transparent;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
+      overscroll-behavior: none;
+    }
+    
+    html {
+      height: -webkit-fill-available;
+    }
+    
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    
+    .pb-safe {
+      padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+    
+    @keyframes slide-up {
+      from { transform: translateY(100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .animate-slide-up {
+      animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+      animation: fade-in 0.6s ease-out forwards;
+    }
+    
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
+      50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.6); }
+    }
+    .animate-pulse-glow {
+      animation: pulse-glow 2s ease-in-out infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin {
+      animation: spin 1s linear infinite;
+    }
+  </style>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@19.0.0",
+      "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+      "lucide-react": "https://esm.sh/lucide-react@0.460.0?external=react"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="module">
+    import React, { useState, useEffect, useRef, useCallback } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { 
+      Plus, Trash2, Palette, Grid, Layers, Upload, Sparkles, 
+      Image as ImageIcon, Loader2, Shirt, Lightbulb, Cloud, Sun, 
+      Thermometer, CloudRain, ExternalLink, RefreshCw, Wand2, 
+      Info, Link as LinkIcon, X, Settings, Key
+    } from 'lucide-react';
+
+    // ============ TYPES ============
+    const CATEGORIES = ['Tops', 'Bottoms', 'Outerwear', 'Shoes'];
+    const WEATHER_OPTIONS = [
+      { type: 'Hot', color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
+      { type: 'Warm', color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' },
+      { type: 'Cold', color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
+      { type: 'Rainy', color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
+    ];
+
+    // ============ STORAGE ============
+    const WARDROBE_KEY = 'stylesync_wardrobe_v1';
+    const INSPIRATION_KEY = 'stylesync_inspiration_v1';
+    const API_KEY_STORAGE = 'stylesync_gemini_api_key';
+
+    const getWardrobe = () => {
+      try {
+        const stored = localStorage.getItem(WARDROBE_KEY);
+        return stored ? JSON.parse(stored) : [];
+      } catch (e) {
+        return [];
+      }
+    };
+
+    const saveWardrobe = (items) => {
+      localStorage.setItem(WARDROBE_KEY, JSON.stringify(items));
+    };
+
+    const addClothingItem = (item) => {
+      const current = getWardrobe();
+      const updated = [...current, item];
+      saveWardrobe(updated);
+      return updated;
+    };
+
+    const deleteClothingItem = (id) => {
+      const current = getWardrobe();
+      const updated = current.filter(item => item.id !== id);
+      saveWardrobe(updated);
+      return updated;
+    };
+
+    const getInspiration = () => {
+      try {
+        const stored = localStorage.getItem(INSPIRATION_KEY);
+        return stored ? JSON.parse(stored) : [];
+      } catch (e) {
+        return [];
+      }
+    };
+
+    const saveInspiration = (items) => {
+      localStorage.setItem(INSPIRATION_KEY, JSON.stringify(items));
+    };
+
+    const addInspirationItem = (item) => {
+      const current = getInspiration();
+      const updated = [...current, item];
+      saveInspiration(updated);
+      return updated;
+    };
+
+    const deleteInspirationItem = (id) => {
+      const current = getInspiration();
+      const updated = current.filter(item => item.id !== id);
+      saveInspiration(updated);
+      return updated;
+    };
+
+    const getApiKey = () => localStorage.getItem(API_KEY_STORAGE) || '';
+    const setApiKey = (key) => localStorage.setItem(API_KEY_STORAGE, key);
+
+    // ============ GEMINI API ============
+    const generateOutfitSuggestion = async (wardrobe, weather, inspiration, apiKey) => {
+      if (!apiKey) throw new Error("Please set your Gemini API key in Settings");
+      if (wardrobe.length === 0) throw new Error("Wardrobe is empty. Please add items first.");
+
+      const inspirationContext = inspiration.length > 0 
+        ? `Style inspiration to incorporate: ${JSON.stringify(inspiration.map(i => ({ type: i.type, desc: i.description })))}`
+        : "";
+
+      const prompt = `You are a professional fashion stylist. Create a business casual outfit recommendation.
+
+My Wardrobe (JSON array with id, category, type, color, pattern, material):
+${JSON.stringify(wardrobe)}
+
+Weather: ${weather}
+${inspirationContext}
+
+Requirements:
+1. Select the best combination for business casual that matches the weather
+2. Must include: Top, Bottom, Shoes. Outerwear optional for Cold/Rainy.
+3. Return ONLY valid JSON (no markdown):
+
+{
+  "selectedItemIds": ["id1", "id2", ...],
+  "reasoning": "Why these items work together",
+  "trendNote": "Current fashion trend this follows",
+  "weatherNote": "How it suits the weather",
+  "inspirationNote": "How it incorporates the inspiration (or 'No specific inspiration provided')"
+}`;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7 }
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || 'API request failed');
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error("No response from AI");
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("Invalid response format");
+      
+      return { recommendation: JSON.parse(jsonMatch[0]), sources: [] };
+    };
+
+    const generateClothingImage = async (item, apiKey) => {
+      if (!apiKey) throw new Error("Please set your Gemini API key in Settings");
+      
+      const prompt = `Generate a professional product photo of: ${item.color} ${item.pattern} ${item.type} made of ${item.material}. Clean white background, studio lighting, fashion catalog style.`;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ["TEXT", "IMAGE"] }
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || 'Image generation failed');
+      }
+
+      const data = await response.json();
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      for (const part of parts) {
+        if (part.inlineData) {
+          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
+      }
+      throw new Error("No image generated - try uploading a photo instead");
+    };
+
+    // ============ COMPONENTS ============
+
+    // Settings Modal
+    const SettingsModal = ({ isOpen, onClose, apiKey, onSaveApiKey }) => {
+      const [key, setKey] = useState(apiKey);
+      
+      if (!isOpen) return null;
+      
+      return React.createElement('div', { className: "fixed inset-0 z-[70] flex items-center justify-center p-4" },
+        React.createElement('div', { 
+          className: "absolute inset-0 bg-slate-950/90 backdrop-blur-sm",
+          onClick: onClose 
+        }),
+        React.createElement('div', { className: "bg-slate-900 w-full max-w-md p-6 rounded-3xl shadow-2xl border border-slate-800 relative z-10 animate-fade-in" },
+          React.createElement('div', { className: "flex justify-between items-center mb-6" },
+            React.createElement('h2', { className: "text-xl font-bold text-slate-100 flex items-center" },
+              React.createElement(Key, { size: 20, className: "mr-2 text-indigo-400" }),
+              "API Settings"
+            ),
+            React.createElement('button', { onClick: onClose, className: "p-2 rounded-full bg-slate-800 text-slate-400" },
+              React.createElement(X, { size: 18 })
+            )
+          ),
+          React.createElement('div', { className: "space-y-4" },
+            React.createElement('div', null,
+              React.createElement('label', { className: "block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2" }, "Gemini API Key"),
+              React.createElement('input', {
+                type: "password",
+                value: key,
+                onChange: (e) => setKey(e.target.value),
+                placeholder: "Enter your Gemini API key",
+                className: "w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:border-indigo-500 outline-none"
+              })
+            ),
+            React.createElement('p', { className: "text-xs text-slate-500" },
+              "Get your free API key from ",
+              React.createElement('a', { 
+                href: "https://aistudio.google.com/apikey", 
+                target: "_blank", 
+                className: "text-indigo-400 hover:underline" 
+              }, "Google AI Studio")
+            ),
+            React.createElement('button', {
+              onClick: () => { onSaveApiKey(key); onClose(); },
+              className: "w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl mt-4"
+            }, "Save Key")
+          )
+        )
+      );
+    };
+
+    // NavBar
+    const NavBar = ({ currentView, setView, onSettingsClick }) => {
+      return React.createElement('div', { className: "fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800 pb-safe pt-2 px-6 z-50" },
+        React.createElement('div', { className: "flex justify-around items-center h-16 pb-2 max-w-lg mx-auto" },
+          ['wardrobe', 'inspiration', 'generator'].map(view => {
+            const icons = { wardrobe: Shirt, inspiration: Lightbulb, generator: Sparkles };
+            const Icon = icons[view];
+            return React.createElement('button', {
+              key: view,
+              onClick: () => setView(view),
+              className: `flex flex-col items-center space-y-1 transition-all duration-300 ${currentView === view ? 'text-indigo-400' : 'text-slate-500'}`
+            },
+              React.createElement('div', { className: `p-1.5 rounded-xl transition-all ${currentView === view ? 'bg-indigo-500/10' : ''}` },
+                React.createElement(Icon, { size: 20, strokeWidth: currentView === view ? 2.5 : 2 })
+              ),
+              React.createElement('span', { className: "text-[8px] font-black tracking-widest uppercase" }, view)
+            );
+          }),
+          React.createElement('button', {
+            onClick: onSettingsClick,
+            className: "flex flex-col items-center space-y-1 text-slate-500"
+          },
+            React.createElement('div', { className: "p-1.5 rounded-xl" },
+              React.createElement(Settings, { size: 20, strokeWidth: 2 })
+            ),
+            React.createElement('span', { className: "text-[8px] font-black tracking-widest uppercase" }, "SETTINGS")
+          )
+        )
+      );
+    };
+
+    // WardrobeView
+    const WardrobeView = ({ items, setItems, apiKey }) => {
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [selectedCategory, setSelectedCategory] = useState('Tops');
+      const [isGenerating, setIsGenerating] = useState(false);
+      const fileInputRef = useRef(null);
+      
+      const [newItemType, setNewItemType] = useState('');
+      const [newItemColor, setNewItemColor] = useState('');
+      const [newItemPattern, setNewItemPattern] = useState('');
+      const [newItemMaterial, setNewItemMaterial] = useState('');
+      const [newItemCategory, setNewItemCategory] = useState('Tops');
+      const [newItemImageUrl, setNewItemImageUrl] = useState(undefined);
+
+      const filteredItems = items.filter(item => item.category === selectedCategory);
+
+      const handleAddItem = (e) => {
+        e.preventDefault();
+        const newItem = {
+          id: crypto.randomUUID(),
+          category: newItemCategory,
+          type: newItemType,
+          color: newItemColor,
+          pattern: newItemPattern,
+          material: newItemMaterial,
+          imageUrl: newItemImageUrl
+        };
+        const updated = addClothingItem(newItem);
+        setItems(updated);
+        resetForm();
+        setIsModalOpen(false);
+      };
+
+      const resetForm = () => {
+        setNewItemType('');
+        setNewItemColor('');
+        setNewItemPattern('');
+        setNewItemMaterial('');
+        setNewItemImageUrl(undefined);
+      };
+
+      const handleDelete = (id) => {
+        if (confirm("Delete this item?")) {
+          const updated = deleteClothingItem(id);
+          setItems(updated);
+        }
+      };
+
+      const handleFileUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => setNewItemImageUrl(reader.result);
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const handleGenerateImage = async () => {
+        if (!newItemType || !newItemColor) {
+          alert("Please enter Type and Color first!");
+          return;
+        }
+        setIsGenerating(true);
+        try {
+          const imageUrl = await generateClothingImage({
+            type: newItemType,
+            color: newItemColor,
+            pattern: newItemPattern,
+            material: newItemMaterial,
+            category: newItemCategory
+          }, apiKey);
+          setNewItemImageUrl(imageUrl);
+        } catch (error) {
+          alert(error.message || "Failed to generate image");
+        } finally {
+          setIsGenerating(false);
+        }
+      };
+
+      return React.createElement('div', { className: "pb-32 px-4 pt-12 max-w-2xl mx-auto" },
+        // Header
+        React.createElement('div', { className: "flex justify-between items-center mb-8" },
+          React.createElement('div', null,
+            React.createElement('h1', { className: "text-3xl font-bold text-slate-100 tracking-tight" }, "Your Wardrobe"),
+            React.createElement('p', { className: "text-slate-500 text-sm mt-1" }, "Manage your collection")
+          ),
+          React.createElement('button', {
+            onClick: () => { resetForm(); setIsModalOpen(true); },
+            className: "bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-2xl shadow-xl shadow-indigo-900/20 transition-all active:scale-95"
+          }, React.createElement(Plus, { size: 24, strokeWidth: 3 }))
+        ),
+        
+        // Category Pills
+        React.createElement('div', { className: "flex overflow-x-auto space-x-2 pb-6 mb-2 no-scrollbar" },
+          CATEGORIES.map(cat => 
+            React.createElement('button', {
+              key: cat,
+              onClick: () => setSelectedCategory(cat),
+              className: `px-5 py-2.5 rounded-2xl text-sm font-semibold whitespace-nowrap transition-all duration-300 ${
+                selectedCategory === cat 
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40 scale-105' 
+                  : 'bg-slate-900 text-slate-400 border border-slate-800'
+              }`
+            }, cat)
+          )
+        ),
+        
+        // Grid
+        filteredItems.length === 0 
+          ? React.createElement('div', { className: "text-center py-24 bg-slate-900/50 rounded-3xl border border-dashed border-slate-800" },
+              React.createElement(ImageIcon, { className: "mx-auto text-slate-700 mb-4", size: 48 }),
+              React.createElement('p', { className: "text-slate-500 font-medium" }, `No ${selectedCategory.toLowerCase()} yet.`),
+              React.createElement('button', { 
+                onClick: () => setIsModalOpen(true), 
+                className: "text-indigo-400 text-sm font-bold mt-3 hover:text-indigo-300" 
+              }, "Add First Item")
+            )
+          : React.createElement('div', { className: "grid grid-cols-2 gap-4" },
+              filteredItems.map(item => 
+                React.createElement('div', { 
+                  key: item.id, 
+                  className: "bg-slate-900 rounded-3xl shadow-sm border border-slate-800 relative overflow-hidden group" 
+                },
+                  item.imageUrl 
+                    ? React.createElement('div', { className: "aspect-[4/5] w-full overflow-hidden bg-slate-800" },
+                        React.createElement('img', { src: item.imageUrl, alt: item.type, className: "w-full h-full object-cover" })
+                      )
+                    : React.createElement('div', { className: "aspect-[4/5] w-full bg-slate-800 flex items-center justify-center text-slate-700" },
+                        React.createElement(ImageIcon, { size: 48 })
+                      ),
+                  React.createElement('div', { className: "p-4" },
+                    React.createElement('div', { className: "flex justify-between items-start mb-2" },
+                      React.createElement('span', { className: "inline-block px-2 py-1 bg-slate-800 text-slate-300 text-[9px] rounded-lg font-bold uppercase tracking-widest" }, item.category),
+                      React.createElement('button', { 
+                        onClick: () => handleDelete(item.id),
+                        className: "p-1 rounded-lg text-slate-500 hover:text-red-400"
+                      }, React.createElement(Trash2, { size: 14 }))
+                    ),
+                    React.createElement('h3', { className: "font-bold text-lg text-slate-100 mb-2 truncate" }, item.type),
+                    React.createElement('div', { className: "space-y-1 text-[10px] text-slate-400" },
+                      React.createElement('div', { className: "flex items-center" }, 
+                        React.createElement(Palette, { size: 12, className: "mr-1.5 text-indigo-400 opacity-60" }), item.color
+                      ),
+                      React.createElement('div', { className: "flex items-center" }, 
+                        React.createElement(Grid, { size: 12, className: "mr-1.5 text-indigo-400 opacity-60" }), item.pattern
+                      ),
+                      React.createElement('div', { className: "flex items-center" }, 
+                        React.createElement(Layers, { size: 12, className: "mr-1.5 text-indigo-400 opacity-60" }), item.material
+                      )
+                    )
+                  )
+                )
+              )
+            ),
+        
+        // Modal
+        isModalOpen && React.createElement('div', { className: "fixed inset-0 z-[60] flex items-end sm:items-center justify-center" },
+          React.createElement('div', { 
+            className: "absolute inset-0 bg-slate-950/80 backdrop-blur-sm",
+            onClick: () => setIsModalOpen(false)
+          }),
+          React.createElement('div', { className: "bg-slate-900 w-full max-w-lg p-6 rounded-t-3xl sm:rounded-3xl shadow-2xl relative z-10 animate-slide-up max-h-[90vh] overflow-y-auto no-scrollbar border border-slate-800" },
+            React.createElement('div', { className: "flex justify-between items-center mb-6" },
+              React.createElement('h2', { className: "text-xl font-bold text-slate-100" }, "Add New Item"),
+              React.createElement('button', { 
+                onClick: () => setIsModalOpen(false), 
+                className: "p-2 rounded-full bg-slate-800 text-slate-400" 
+              }, React.createElement(X, { size: 18 }))
+            ),
+            React.createElement('form', { onSubmit: handleAddItem, className: "space-y-5" },
+              // Image upload
+              React.createElement('div', { className: "space-y-3" },
+                React.createElement('label', { className: "block text-xs font-bold text-slate-500 uppercase tracking-widest" }, "Image"),
+                React.createElement('div', { className: "flex gap-4 items-center" },
+                  React.createElement('div', { className: "w-24 h-24 rounded-2xl bg-slate-950 border-2 border-dashed border-slate-800 flex items-center justify-center overflow-hidden" },
+                    isGenerating 
+                      ? React.createElement(Loader2, { className: "animate-spin text-indigo-400", size: 24 })
+                      : newItemImageUrl 
+                        ? React.createElement('img', { src: newItemImageUrl, className: "w-full h-full object-cover" })
+                        : React.createElement(ImageIcon, { size: 24, className: "text-slate-700" })
+                  ),
+                  React.createElement('div', { className: "flex-1 flex flex-col gap-2" },
+                    React.createElement('input', { type: "file", accept: "image/*", hidden: true, ref: fileInputRef, onChange: handleFileUpload }),
+                    React.createElement('button', {
+                      type: "button",
+                      onClick: () => fileInputRef.current?.click(),
+                      className: "flex items-center justify-center px-3 py-2 rounded-xl border border-slate-700 text-xs font-bold text-slate-300"
+                    }, React.createElement(Upload, { size: 14, className: "mr-1.5" }), "Upload"),
+                    React.createElement('button', {
+                      type: "button",
+                      onClick: handleGenerateImage,
+                      disabled: isGenerating,
+                      className: "flex items-center justify-center px-3 py-2 rounded-xl bg-indigo-600 text-xs font-bold text-white disabled:opacity-50"
+                    }, React.createElement(Sparkles, { size: 14, className: "mr-1.5" }), "Generate AI")
+                  )
+                )
+              ),
+              // Category
+              React.createElement('div', null,
+                React.createElement('label', { className: "block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2" }, "Category"),
+                React.createElement('div', { className: "grid grid-cols-4 gap-2" },
+                  CATEGORIES.map(cat =>
+                    React.createElement('button', {
+                      type: "button",
+                      key: cat,
+                      onClick: () => setNewItemCategory(cat),
+                      className: `py-2 text-[10px] rounded-xl font-bold border transition-all ${
+                        newItemCategory === cat 
+                          ? 'bg-indigo-600/20 border-indigo-500 text-indigo-400' 
+                          : 'bg-slate-950 border-slate-800 text-slate-500'
+                      }`
+                    }, cat)
+                  )
+                )
+              ),
+              // Fields
+              React.createElement('div', null,
+                React.createElement('label', { className: "block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2" }, "Item Type"),
+                React.createElement('input', {
+                  required: true,
+                  placeholder: "e.g. Oxford Shirt",
+                  value: newItemType,
+                  onChange: (e) => setNewItemType(e.target.value),
+                  className: "w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:border-indigo-500 outline-none"
+                })
+              ),
+              React.createElement('div', { className: "grid grid-cols-2 gap-3" },
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2" }, "Color"),
+                  React.createElement('input', {
+                    required: true,
+                    placeholder: "e.g. Navy",
+                    value: newItemColor,
+                    onChange: (e) => setNewItemColor(e.target.value),
+                    className: "w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:border-indigo-500 outline-none"
+                  })
+                ),
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2" }, "Pattern"),
+                  React.createElement('input', {
+                    required: true,
+                    placeholder: "e.g. Solid",
+                    value: newItemPattern,
+                    onChange: (e) => setNewItemPattern(e.target.value),
+                    className: "w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:border-indigo-500 outline-none"
+                  })
+                )
+              ),
+              React.createElement('div', null,
+                React.createElement('label', { className: "block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2" }, "Material"),
+                React.createElement('input', {
+                  required: true,
+                  placeholder: "e.g. Cotton",
+                  value: newItemMaterial,
+                  onChange: (e) => setNewItemMaterial(e.target.value),
+                  className: "w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:border-indigo-500 outline-none"
+                })
+              ),
+              React.createElement('button', {
+                type: "submit",
+                className: "w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-2xl shadow-xl active:scale-[0.98] transition-all"
+              }, "Save Item")
+            )
+          )
+        )
+      );
+    };
+
+    // InspirationView
+    const InspirationView = ({ inspiration, setInspiration }) => {
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [newType, setNewType] = useState('image');
+      const [newContent, setNewContent] = useState('');
+      const [newDescription, setNewDescription] = useState('');
+      const fileInputRef = useRef(null);
+
+      const handleAdd = (e) => {
+        e.preventDefault();
+        if (!newContent) return;
+        const newItem = {
+          id: crypto.randomUUID(),
+          type: newType,
+          content: newContent,
+          description: newDescription
+        };
+        const updated = addInspirationItem(newItem);
+        setInspiration(updated);
+        resetForm();
+        setIsModalOpen(false);
+      };
+
+      const resetForm = () => {
+        setNewContent('');
+        setNewDescription('');
+        setNewType('image');
+      };
+
+      const handleDelete = (id) => {
+        if (confirm("Remove this inspiration?")) {
+          const updated = deleteInspirationItem(id);
+          setInspiration(updated);
+        }
+      };
+
+      const handleFileUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            setNewContent(reader.result);
+            setNewType('image');
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      return React.createElement('div', { className: "pb-32 px-4 pt-12 max-w-2xl mx-auto" },
+        React.createElement('div', { className: "flex justify-between items-center mb-8" },
+          React.createElement('div', null,
+            React.createElement('h1', { className: "text-3xl font-bold text-slate-100 tracking-tight" }, "Inspiration"),
+            React.createElement('p', { className: "text-slate-500 text-sm mt-1" }, "Vibes that influence your AI outfits")
+          ),
+          React.createElement('button', {
+            onClick: () => { resetForm(); setIsModalOpen(true); },
+            className: "bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-2xl shadow-xl transition-all active:scale-95"
+          }, React.createElement(Plus, { size: 24, strokeWidth: 3 }))
+        ),
+        
+        inspiration.length === 0 
+          ? React.createElement('div', { className: "text-center py-24 bg-slate-900/50 rounded-3xl border border-dashed border-slate-800" },
+              React.createElement(ImageIcon, { className: "mx-auto text-slate-700 mb-4", size: 48 }),
+              React.createElement('p', { className: "text-slate-500 font-medium" }, "No inspiration saved yet."),
+              React.createElement('button', { onClick: () => setIsModalOpen(true), className: "text-indigo-400 text-sm font-bold mt-3" }, "Save Your First Vibe")
+            )
+          : React.createElement('div', { className: "grid grid-cols-2 gap-4" },
+              inspiration.map(item => 
+                React.createElement('div', { key: item.id, className: "bg-slate-900 rounded-3xl border border-slate-800 relative overflow-hidden" },
+                  item.type === 'image'
+                    ? React.createElement('div', { className: "aspect-square bg-slate-800 overflow-hidden" },
+                        React.createElement('img', { src: item.content, className: "w-full h-full object-cover" })
+                      )
+                    : React.createElement('div', { className: "aspect-square bg-slate-800 flex flex-col items-center justify-center p-4 text-center" },
+                        React.createElement(LinkIcon, { className: "text-indigo-400 mb-2", size: 32 }),
+                        React.createElement('p', { className: "text-[10px] text-slate-400 font-bold truncate w-full" }, 
+                          (() => { try { return new URL(item.content).hostname; } catch { return 'Link'; } })()
+                        ),
+                        React.createElement('a', { href: item.content, target: "_blank", className: "text-xs text-indigo-400 mt-2" }, "View")
+                      ),
+                  React.createElement('div', { className: "p-3 bg-slate-900/90 border-t border-slate-800" },
+                    React.createElement('div', { className: "flex justify-between items-start" },
+                      React.createElement('p', { className: "text-xs text-slate-400 font-medium line-clamp-2 italic" }, `"${item.description || 'No description'}"`),
+                      React.createElement('button', { onClick: () => handleDelete(item.id), className: "text-slate-600 hover:text-rose-400 ml-2" },
+                        React.createElement(Trash2, { size: 14 })
+                      )
+                    )
+                  )
+                )
+              )
+            ),
+        
+        isModalOpen && React.createElement('div', { className: "fixed inset-0 z-[60] flex items-end sm:items-center justify-center" },
+          React.createElement('div', { className: "absolute inset-0 bg-slate-950/80 backdrop-blur-sm", onClick: () => setIsModalOpen(false) }),
+          React.createElement('div', { className: "bg-slate-900 w-full max-w-lg p-6 rounded-t-3xl sm:rounded-3xl shadow-2xl relative z-10 animate-slide-up max-h-[90vh] overflow-y-auto no-scrollbar border border-slate-800" },
+            React.createElement('div', { className: "flex justify-between items-center mb-6" },
+              React.createElement('h2', { className: "text-xl font-bold text-slate-100" }, "Add Inspiration"),
+              React.createElement('button', { onClick: () => setIsModalOpen(false), className: "p-2 bg-slate-800 rounded-full text-slate-400" }, React.createElement(X, { size: 18 }))
+            ),
+            React.createElement('div', { className: "flex gap-2 mb-6" },
+              React.createElement('button', {
+                onClick: () => { setNewType('image'); setNewContent(''); },
+                className: `flex-1 py-3 rounded-xl text-xs font-bold border transition-all ${newType === 'image' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-500'}`
+              }, "IMAGE"),
+              React.createElement('button', {
+                onClick: () => { setNewType('link'); setNewContent(''); },
+                className: `flex-1 py-3 rounded-xl text-xs font-bold border transition-all ${newType === 'link' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-500'}`
+              }, "LINK")
+            ),
+            React.createElement('form', { onSubmit: handleAdd, className: "space-y-5" },
+              newType === 'image'
+                ? React.createElement('div', { className: "space-y-3" },
+                    React.createElement('div', { className: "w-full h-48 rounded-2xl bg-slate-950 border-2 border-dashed border-slate-800 flex items-center justify-center overflow-hidden" },
+                      newContent 
+                        ? React.createElement('img', { src: newContent, className: "w-full h-full object-cover" })
+                        : React.createElement(ImageIcon, { className: "text-slate-800", size: 48 })
+                    ),
+                    React.createElement('input', { type: "file", accept: "image/*", hidden: true, ref: fileInputRef, onChange: handleFileUpload }),
+                    React.createElement('button', {
+                      type: "button",
+                      onClick: () => fileInputRef.current?.click(),
+                      className: "w-full py-3 rounded-xl border border-slate-700 text-sm font-bold text-slate-300"
+                    }, React.createElement(Upload, { size: 16, className: "inline mr-2" }), "Upload Image")
+                  )
+                : React.createElement('div', null,
+                    React.createElement('label', { className: "text-[10px] font-black text-slate-500 uppercase tracking-widest" }, "URL"),
+                    React.createElement('input', {
+                      required: true,
+                      placeholder: "https://...",
+                      value: newContent,
+                      onChange: (e) => setNewContent(e.target.value),
+                      className: "w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:border-indigo-500 outline-none mt-2"
+                    })
+                  ),
+              React.createElement('div', null,
+                React.createElement('label', { className: "text-[10px] font-black text-slate-500 uppercase tracking-widest" }, "Description / Vibe"),
+                React.createElement('textarea', {
+                  placeholder: "e.g. Minimalist monochrome look",
+                  value: newDescription,
+                  onChange: (e) => setNewDescription(e.target.value),
+                  className: "w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:border-indigo-500 outline-none h-20 resize-none mt-2"
+                })
+              ),
+              React.createElement('button', {
+                type: "submit",
+                className: "w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl active:scale-95 transition-all"
+              }, "Save Inspiration")
+            )
+          )
+        )
+      );
+    };
+
+    // GeneratorView
+    const GeneratorView = ({ items, inspiration, apiKey }) => {
+      const [weather, setWeather] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [result, setResult] = useState(null);
+      const [error, setError] = useState(null);
+
+      const handleGenerate = async () => {
+        if (!weather) return;
+        setLoading(true);
+        setError(null);
+        try {
+          const data = await generateOutfitSuggestion(items, weather, inspiration, apiKey);
+          setResult(data);
+        } catch (err) {
+          setError(err.message || "Something went wrong.");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const getSelectedItemDetails = (id) => items.find(i => i.id === id);
+
+      const WeatherIcon = ({ type }) => {
+        const icons = { Hot: Sun, Warm: Thermometer, Cold: Cloud, Rainy: CloudRain };
+        const Icon = icons[type];
+        return React.createElement(Icon, { size: 20 });
+      };
+
+      return React.createElement('div', { className: "pb-32 px-4 pt-12 max-w-2xl mx-auto" },
+        React.createElement('h1', { className: "text-3xl font-bold text-slate-100 tracking-tight mb-2" }, "Morning Routine"),
+        React.createElement('p', { className: "text-slate-500 text-sm mb-8" }, "AI analysis for your best look today."),
+        
+        React.createElement('div', { className: "bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-800 mb-8" },
+          React.createElement('label', { className: "block text-xs font-bold text-slate-500 uppercase tracking-widest mb-5" }, "Today's Forecast"),
+          React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-4 gap-3" },
+            WEATHER_OPTIONS.map((option) =>
+              React.createElement('button', {
+                key: option.type,
+                onClick: () => setWeather(option.type),
+                className: `flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-300 ${
+                  weather === option.type
+                    ? `border-indigo-500 bg-indigo-500/5 ring-1 ring-indigo-500 ${option.color.split(' ')[0]}`
+                    : 'border-slate-800 bg-slate-950 text-slate-500'
+                }`
+              },
+                React.createElement('div', { className: `mb-2 transition-transform duration-500 ${weather === option.type ? 'scale-125' : ''}` },
+                  React.createElement(WeatherIcon, { type: option.type })
+                ),
+                React.createElement('span', { className: "font-bold text-xs uppercase tracking-wider" }, option.type)
+              )
+            )
+          ),
+          React.createElement('button', {
+            onClick: handleGenerate,
+            disabled: !weather || loading || items.length === 0,
+            className: `w-full mt-6 py-4 rounded-2xl font-bold text-white shadow-xl flex items-center justify-center transition-all ${
+              !weather || items.length === 0
+                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.98]'
+            }`
+          },
+            loading
+              ? React.createElement(React.Fragment, null,
+                  React.createElement(RefreshCw, { className: "animate-spin mr-3", size: 20 }),
+                  "Crafting Your Look..."
+                )
+              : React.createElement(React.Fragment, null,
+                  React.createElement(Wand2, { className: "mr-3", size: 20 }),
+                  "Generate Recommendation"
+                )
+          ),
+          items.length === 0 && React.createElement('p', { className: "text-center text-rose-400 text-[10px] font-bold uppercase tracking-widest mt-4" }, "Add items to your wardrobe first.")
+        ),
+        
+        error && React.createElement('div', { className: "bg-rose-500/10 text-rose-400 p-5 rounded-2xl text-sm font-medium mb-8 border border-rose-500/20 animate-fade-in" }, error),
+        
+        result && React.createElement('div', { className: "animate-fade-in space-y-6" },
+          React.createElement('div', { className: "bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-800" },
+            React.createElement('div', { className: "bg-gradient-to-br from-indigo-600/90 to-violet-600/90 p-6 text-white relative" },
+              React.createElement('h2', { className: "text-2xl font-black flex items-center tracking-tight" },
+                "The Setup",
+                React.createElement('span', { className: "ml-auto text-[9px] font-bold bg-white/20 px-2.5 py-1 rounded-full uppercase tracking-widest" }, "AI PICK")
+              ),
+              React.createElement('p', { className: "text-indigo-50 font-medium text-sm mt-3 leading-relaxed opacity-90" }, result.recommendation.reasoning)
+            ),
+            React.createElement('div', { className: "p-6" },
+              React.createElement('h3', { className: "text-[10px] font-black text-slate-600 uppercase tracking-[0.15em] mb-4" }, "SELECTED ITEMS"),
+              React.createElement('div', { className: "space-y-3" },
+                result.recommendation.selectedItemIds.map(id => {
+                  const item = getSelectedItemDetails(id);
+                  if (!item) return null;
+                  return React.createElement('div', { key: id, className: "flex items-center p-3 rounded-2xl bg-slate-950 border border-slate-800" },
+                    React.createElement('div', { className: "w-12 h-12 rounded-xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center mr-4 shrink-0" },
+                      item.imageUrl
+                        ? React.createElement('img', { src: item.imageUrl, className: "w-full h-full object-cover" })
+                        : React.createElement('div', { className: "text-lg font-black text-slate-700" }, item.category[0])
+                    ),
+                    React.createElement('div', { className: "min-w-0" },
+                      React.createElement('p', { className: "font-bold text-slate-100 text-base leading-none mb-1 truncate" }, item.type),
+                      React.createElement('p', { className: "text-[10px] font-medium text-slate-500 truncate uppercase tracking-wider" }, `${item.color} • ${item.material}`)
+                    )
+                  );
+                })
+              )
+            ),
+            React.createElement('div', { className: "bg-slate-950/50 px-6 py-5 border-t border-slate-800 space-y-4" },
+              result.recommendation.inspirationNote && React.createElement('div', { className: "flex items-start" },
+                React.createElement('div', { className: "p-2 rounded-xl bg-amber-500/10 text-amber-400 mr-3" },
+                  React.createElement(Lightbulb, { size: 16 })
+                ),
+                React.createElement('div', null,
+                  React.createElement('span', { className: "block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5" }, "Personal Influence"),
+                  React.createElement('p', { className: "text-xs text-slate-300 leading-relaxed font-medium" }, result.recommendation.inspirationNote)
+                )
+              ),
+              React.createElement('div', { className: "flex items-start" },
+                React.createElement('div', { className: "p-2 rounded-xl bg-indigo-500/10 text-indigo-400 mr-3" },
+                  React.createElement(Info, { size: 16 })
+                ),
+                React.createElement('div', null,
+                  React.createElement('span', { className: "block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5" }, "Style Insight"),
+                  React.createElement('p', { className: "text-xs text-slate-300 leading-relaxed font-medium" }, result.recommendation.trendNote)
+                )
+              ),
+              React.createElement('div', { className: "flex items-start" },
+                React.createElement('div', { className: "p-2 rounded-xl bg-sky-500/10 text-sky-400 mr-3" },
+                  React.createElement(Cloud, { size: 16 })
+                ),
+                React.createElement('div', null,
+                  React.createElement('span', { className: "block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5" }, "Weather Note"),
+                  React.createElement('p', { className: "text-xs text-slate-300 leading-relaxed font-medium" }, result.recommendation.weatherNote)
+                )
+              )
+            )
+          )
+        )
+      );
+    };
+
+    // App
+    const App = () => {
+      const [currentView, setCurrentView] = useState('wardrobe');
+      const [items, setItems] = useState([]);
+      const [inspiration, setInspiration] = useState([]);
+      const [settingsOpen, setSettingsOpen] = useState(false);
+      const [apiKey, setApiKeyState] = useState('');
+
+      useEffect(() => {
+        setItems(getWardrobe());
+        setInspiration(getInspiration());
+        setApiKeyState(getApiKey());
+      }, []);
+
+      const handleSaveApiKey = (key) => {
+        setApiKey(key);
+        setApiKeyState(key);
+      };
+
+      return React.createElement('div', { className: "min-h-screen bg-slate-950 text-slate-100 selection:bg-indigo-500/30" },
+        React.createElement('main', { className: "w-full h-full" },
+          currentView === 'wardrobe' && React.createElement(WardrobeView, { items, setItems, apiKey }),
+          currentView === 'inspiration' && React.createElement(InspirationView, { inspiration, setInspiration }),
+          currentView === 'generator' && React.createElement(GeneratorView, { items, inspiration, apiKey })
+        ),
+        React.createElement(NavBar, { currentView, setView: setCurrentView, onSettingsClick: () => setSettingsOpen(true) }),
+        React.createElement(SettingsModal, { 
+          isOpen: settingsOpen, 
+          onClose: () => setSettingsOpen(false), 
+          apiKey,
+          onSaveApiKey: handleSaveApiKey
+        })
+      );
+    };
+
+    // Mount
+    const root = createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
